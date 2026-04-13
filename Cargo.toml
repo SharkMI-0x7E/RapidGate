@@ -1,9 +1,9 @@
 [package]
-name = "unigate"
-version = "0.0.2"
+name = "rapidgate"
+version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
-description = "一个高性能、统一的 API 网关，用rust编写。"
-repository = "https://github.com/SharkMI-0x7E/unigate"
+description = "A high-performance unified API gateway for multiple LLM providers"
+repository = "https://github.com/SharkMI-0x7E/RapidGate"
 
 [dependencies]
