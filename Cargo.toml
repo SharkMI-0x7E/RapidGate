@@ -1,9 +1,9 @@
 [package]
 name = "rapidgate"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 license = "Apache-2.0"
-description = "A high-performance unified API gateway for multiple LLM providers"
+description = "This crate is still empty (I'm learning Rust), yet 8 brave souls have already downloaded it — thanks for the encouragement! | A high-performance unified API gateway for multiple LLM providers"
 repository = "https://github.com/SharkMI-0x7E/RapidGate"
 
 [dependencies]
