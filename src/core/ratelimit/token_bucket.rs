@@ -1,25 +1,25 @@
 //! 令牌桶限流（spec §4.5）
 
-use std::collections::HashMap;
-use std::sync::Mutex;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 
 use crate::core::error::CoreError;
+use crate::core::ratelimit::local_store::LocalStore;
 use crate::core::ratelimit::{Decision, LimitKey, RateLimiter};
 
 /// 令牌桶状态
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Bucket {
     tokens: f64,
     last_refill: Instant,
 }
 
+/// 令牌桶限流器，状态由 `LocalStore`（Moka）持久化 —— local 模式默认后端
 pub struct TokenBucket {
     rps: f64,
     burst: f64,
-    buckets: Mutex<HashMap<LimitKey, Bucket>>,
+    store: LocalStore<LimitKey, Bucket>,
 }
 
 impl TokenBucket {
@@ -27,7 +27,8 @@ impl TokenBucket {
         Self {
             rps: rps as f64,
             burst: burst as f64,
-            buckets: Mutex::new(HashMap::new()),
+            // 每 key 若 10 分钟不活跃自动清理，防止内存被随机 key 撑爆
+            store: LocalStore::new(10_000, Duration::from_secs(600)),
         }
     }
 }
@@ -35,19 +36,25 @@ impl TokenBucket {
 #[async_trait]
 impl RateLimiter for TokenBucket {
     async fn check(&self, key: &LimitKey) -> Result<Decision, CoreError> {
-        let mut buckets = self.buckets.lock().expect("token bucket lock poisoned");
         let now = Instant::now();
-        let entry = buckets.entry(key.clone()).or_insert(Bucket {
+        let init = Bucket {
             tokens: self.burst,
             last_refill: now,
-        });
-        // 补充令牌
-        let elapsed = now.duration_since(entry.last_refill).as_secs_f64();
-        entry.tokens = (entry.tokens + elapsed * self.rps).min(self.burst);
-        entry.last_refill = now;
+        };
+        let mut bucket = self
+            .store
+            .update(key.clone(), init, |mut b| {
+                // 补充令牌
+                let elapsed = now.duration_since(b.last_refill).as_secs_f64();
+                b.tokens = (b.tokens + elapsed * self.rps).min(self.burst);
+                b.last_refill = now;
+                b
+            })
+            .await;
 
-        if entry.tokens >= 1.0 {
-            entry.tokens -= 1.0;
+        if bucket.tokens >= 1.0 {
+            bucket.tokens -= 1.0;
+            self.store.insert(key.clone(), bucket).await;
             Ok(Decision::Allow)
         } else {
             Ok(Decision::Deny)

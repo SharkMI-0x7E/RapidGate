@@ -1,18 +1,18 @@
 //! 滑动窗口限流（spec §4.5）
 
-use std::collections::{HashMap, VecDeque};
-use std::sync::Mutex;
+use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 
 use crate::core::error::CoreError;
+use crate::core::ratelimit::local_store::LocalStore;
 use crate::core::ratelimit::{Decision, LimitKey, RateLimiter};
 
 pub struct SlidingWindow {
     window: Duration,
     max_requests: usize,
-    buckets: Mutex<HashMap<LimitKey, VecDeque<Instant>>>,
+    store: LocalStore<LimitKey, VecDeque<Instant>>,
 }
 
 impl SlidingWindow {
@@ -23,7 +23,7 @@ impl SlidingWindow {
                 .checked_div(rps.max(1))
                 .unwrap_or(Duration::from_secs(1)),
             max_requests: rps as usize,
-            buckets: Mutex::new(HashMap::new()),
+            store: LocalStore::new(10_000, Duration::from_secs(600)),
         }
     }
 }
@@ -31,21 +31,27 @@ impl SlidingWindow {
 #[async_trait]
 impl RateLimiter for SlidingWindow {
     async fn check(&self, key: &LimitKey) -> Result<Decision, CoreError> {
-        let mut buckets = self.buckets.lock().expect("sliding window lock poisoned");
         let now = Instant::now();
-        let entry = buckets.entry(key.clone()).or_default();
+        let window = self.window;
+        let max_requests = self.max_requests;
+        let mut entry = self
+            .store
+            .update(key.clone(), VecDeque::new(), |mut entry| {
+                // 弹出窗口外的旧记录
+                while let Some(&front) = entry.front() {
+                    if now.duration_since(front) > window {
+                        entry.pop_front();
+                    } else {
+                        break;
+                    }
+                }
+                entry
+            })
+            .await;
 
-        // 弹出窗口外的旧记录
-        while let Some(&front) = entry.front() {
-            if now.duration_since(front) > self.window {
-                entry.pop_front();
-            } else {
-                break;
-            }
-        }
-
-        if entry.len() < self.max_requests {
+        if entry.len() < max_requests {
             entry.push_back(now);
+            self.store.insert(key.clone(), entry).await;
             Ok(Decision::Allow)
         } else {
             Ok(Decision::Deny)

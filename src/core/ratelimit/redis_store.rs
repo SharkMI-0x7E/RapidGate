@@ -3,8 +3,12 @@
 //! 使用 Redis 作为后端存储，支持令牌桶和滑动窗口算法。
 //! 所有操作使用 Lua 脚本保证原子性。
 
+use std::sync::Arc;
+
 use async_trait::async_trait;
 
+use super::sliding_window::SlidingWindow;
+use super::token_bucket::TokenBucket;
 use super::{Decision, LimitKey, RateLimiter};
 use crate::core::error::CoreError;
 
@@ -106,27 +110,39 @@ pub enum Algorithm {
 }
 
 /// Redis 限流器
+///
+/// 使用 Redis 作为分布式后端；当 Redis 不可达时优雅降级到同配置的
+/// 本地（进程内）限流器，而不是 panic 或直接报错中断转发，保证单点故障下
+/// 网关仍可服务（可能放宽跨实例的整体限制）。
 pub struct RedisRateLimiter {
     store: RedisStore,
     algorithm: Algorithm,
+    /// 本地降级限流器（Redis 不可用时生效）
+    local_fallback: Arc<dyn RateLimiter>,
 }
 
 impl RedisRateLimiter {
     /// 创建令牌桶限流器
     pub fn token_bucket(redis_url: &str, config: TokenBucketConfig) -> Result<Self, CoreError> {
         let store = RedisStore::new(redis_url)?;
+        let local_fallback: Arc<dyn RateLimiter> =
+            Arc::new(TokenBucket::new(config.capacity, config.capacity));
         Ok(Self {
             store,
             algorithm: Algorithm::TokenBucket(config),
+            local_fallback,
         })
     }
 
     /// 创建滑动窗口限流器
     pub fn sliding_window(redis_url: &str, config: SlidingWindowConfig) -> Result<Self, CoreError> {
         let store = RedisStore::new(redis_url)?;
+        let local_fallback: Arc<dyn RateLimiter> =
+            Arc::new(SlidingWindow::new(config.limit, config.limit));
         Ok(Self {
             store,
             algorithm: Algorithm::SlidingWindow(config),
+            local_fallback,
         })
     }
 }
@@ -134,7 +150,13 @@ impl RedisRateLimiter {
 #[async_trait]
 impl RateLimiter for RedisRateLimiter {
     async fn check(&self, key: &LimitKey) -> Result<Decision, CoreError> {
-        let mut conn = self.store.get_connection().await?;
+        let mut conn = match self.store.get_connection().await {
+            Ok(conn) => conn,
+            Err(e) => {
+                tracing::warn!(error = %e, key = %key, "redis unavailable; degrading to local rate limiter");
+                return self.local_fallback.check(key).await;
+            }
+        };
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_err(|e| CoreError::Internal(format!("failed to get timestamp: {e}")))?
@@ -206,5 +228,18 @@ mod tests {
         };
         assert_eq!(config.window, 60);
         assert_eq!(config.limit, 1000);
+    }
+
+    #[tokio::test]
+    async fn redis_unreachable_degrades_to_local_without_panic() {
+        // 指向一个必然拒绝连接的本地端口，验证 Redis 不可达时优雅降级到本地限流器，
+        // 返回 Decision 而不是 panic / Err。
+        let config = TokenBucketConfig {
+            capacity: 2,
+            rate: 10.0,
+        };
+        let limiter = RedisRateLimiter::token_bucket("redis://127.0.0.1:1", config).unwrap();
+        let decision = limiter.check(&"u1".into()).await;
+        assert!(matches!(decision, Ok(Decision::Allow) | Ok(Decision::Deny)));
     }
 }
