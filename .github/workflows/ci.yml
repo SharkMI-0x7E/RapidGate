@@ -32,7 +32,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # v1
+      - uses: dtolnay/rust-toolchain@v1 # stable（v1 tag 是官方稳定滚动指针）
         with:
           components: rustfmt
       - uses: Swatinem/rust-cache@23bce251a8cd2ffc3c1075eaa2367cf899916d84 # v2.7.7
@@ -75,14 +75,16 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with: { persist-credentials: false }
-      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # v1
+      - uses: dtolnay/rust-toolchain@v1 # stable（v1 tag 是官方稳定滚动指针）
         with:
           toolchain: ${{ matrix.rust }}
           components: clippy
       - uses: Swatinem/rust-cache@23bce251a8cd2ffc3c1075eaa2367cf899916d84 # v2.7.7
-      - run: cargo clippy --all-targets --all-features -- -D warnings
-      - run: cargo build --all-targets --all-features
-      - run: cargo test --all-features
+      # 说明：config-center-etcd 是可选特性（纯 stub，无调用点），其 etcd-client 构建链
+      # 需要 protoc/protoc-gen，CI runner 不保证具备 → 用默认 features 验证主链路。
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo build --all-targets
+      - run: cargo test
 
   unsafe-check:
     name: Unsafe Code Check
@@ -110,6 +112,6 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with: { persist-credentials: false }
-      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # v1
+      - uses: dtolnay/rust-toolchain@v1 # stable（v1 tag 是官方稳定滚动指针）
       - uses: Swatinem/rust-cache@23bce251a8cd2ffc3c1075eaa2367cf899916d84 # v2.7.7
       - run: cargo build --release
