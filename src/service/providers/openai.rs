@@ -46,4 +46,8 @@ impl Provider for OpenAIProvider {
     fn api_path(&self) -> &str {
         "/v1/chat/completions"
     }
+
+    fn embedding_path(&self) -> &str {
+        "/v1/embeddings"
+    }
 }

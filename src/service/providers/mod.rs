@@ -28,6 +28,8 @@ pub struct ProviderRequest {
     pub model: String,
     /// 是否流式
     pub stream: bool,
+    /// 操作类型："chat" | "embeddings"（决定构建 /v1/chat/completions 还是 /v1/embeddings）
+    pub operation: String,
 }
 
 /// Provider 响应上下文
@@ -58,10 +60,22 @@ pub trait Provider: Send + Sync {
     /// 获取 Provider 的 API 路径（如 /v1/chat/completions）
     fn api_path(&self) -> &str;
 
+    /// 获取 Provider 的 embedding API 路径（如 /v1/embeddings）
+    ///
+    /// 默认回退到 `api_path`，仅支持 embeddings 的 provider（如 OpenAI）需覆写。
+    fn embedding_path(&self) -> &str {
+        self.api_path()
+    }
+
     /// 构建上游请求 URL
     fn build_url(&self, req: &ProviderRequest) -> Result<String, CoreError> {
         let base = req.base_url.trim_end_matches('/');
-        Ok(format!("{}{}", base, self.api_path()))
+        let path = if req.operation == "embeddings" {
+            self.embedding_path()
+        } else {
+            self.api_path()
+        };
+        Ok(format!("{base}{path}"))
     }
 }
 

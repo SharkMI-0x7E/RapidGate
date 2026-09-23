@@ -31,21 +31,7 @@ impl Provider for AnthropicProvider {
             anthropic_req["max_tokens"] = json!(4096);
         }
 
-        // 转换 messages 格式（如果需要）
-        // OpenAI 和 Anthropic 的 messages 格式基本兼容，但 Anthropic 不支持 system role
-        if let Some(messages) = anthropic_req.get_mut("messages") {
-            if let Some(messages_arr) = messages.as_array_mut() {
-                for msg in messages_arr.iter_mut() {
-                    if let Some(role) = msg.get("role") {
-                        if role == "system" {
-                            // Anthropic 不支持 system role，转换为 user
-                            msg["role"] = json!("user");
-                        }
-                    }
-                }
-            }
-        }
-
+        // messages 原样透传，保留 role:"system" 语义（spec 要求不得改写为 user）
         Ok(anthropic_req)
     }
 
@@ -55,23 +41,14 @@ impl Provider for AnthropicProvider {
         // OpenAI 流式：data: { "choices": [{"delta": {...}}] }
 
         if resp.is_stream {
-            // 流式响应需要解析 SSE events
-            let body_str = String::from_utf8_lossy(&resp.body);
-            let mut openai_chunks = Vec::new();
-
-            for line in body_str.lines() {
-                if let Some(data) = line.strip_prefix("data: ") {
-                    if let Ok(anthropic_chunk) = serde_json::from_str::<Value>(data) {
-                        // 转换 Anthropic chunk 到 OpenAI chunk
-                        if let Some(openai_chunk) = self.transform_streaming_chunk(&anthropic_chunk)
-                        {
-                            openai_chunks.push(openai_chunk);
-                        }
-                    }
-                }
-            }
-
-            Ok(json!(openai_chunks))
+            // 流式：handler 已剥离 `data:` 前缀，这里收到的是单个纯 JSON chunk，
+            // 转换后返回单个 OpenAI Value（不包含 data: 前缀，避免二次包装）。
+            let chunk: Value = serde_json::from_slice(&resp.body).map_err(|e| {
+                CoreError::Internal(format!("failed to parse Anthropic SSE chunk: {e}"))
+            })?;
+            Ok(self
+                .transform_streaming_chunk(&chunk)
+                .unwrap_or(Value::Null))
         } else {
             // 非流式响应
             let anthropic_resp: Value = serde_json::from_slice(&resp.body).map_err(|e| {
@@ -90,6 +67,8 @@ impl Provider for AnthropicProvider {
                 .and_then(|t| t.as_str())
                 .unwrap_or("");
 
+            let usage = map_anthropic_usage(anthropic_resp.get("usage"));
+
             let openai_resp = json!({
                 "id": anthropic_resp.get("id").cloned().unwrap_or(json!("")),
                 "object": "chat.completion",
@@ -103,7 +82,7 @@ impl Provider for AnthropicProvider {
                     },
                     "finish_reason": "stop"
                 }],
-                "usage": anthropic_resp.get("usage").cloned().unwrap_or(json!({}))
+                "usage": usage
             });
 
             Ok(openai_resp)
@@ -172,5 +151,94 @@ impl AnthropicProvider {
             }
             _ => None,
         }
+    }
+}
+
+/// 将 Anthropic usage 映射为 OpenAI 兼容的 usage 结构。
+///
+/// Anthropic 返回 `{input_tokens, output_tokens}`，OpenAI 期望
+/// `{prompt_tokens, completion_tokens, total_tokens}`。字段缺失时补 0。
+fn map_anthropic_usage(raw: Option<&Value>) -> Value {
+    let input = raw
+        .and_then(|u| u.get("input_tokens"))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    let output = raw
+        .and_then(|u| u.get("output_tokens"))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    json!({
+        "prompt_tokens": input,
+        "completion_tokens": output,
+        "total_tokens": input + output,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::service::providers::{ProviderRequest, ProviderResponse};
+
+    #[test]
+    fn preserves_system_role() {
+        let req = ProviderRequest {
+            body: json!({
+                "model": "claude-3",
+                "messages": [
+                    {"role": "system", "content": "sys"},
+                    {"role": "user", "content": "hi"}
+                ],
+            }),
+            base_url: "http://x".into(),
+            api_key: "k".into(),
+            model: "claude-3".into(),
+            stream: false,
+            operation: "chat".into(),
+        };
+        let p = AnthropicProvider;
+        let out = p.transform_request(&req).unwrap();
+        let msgs = out["messages"].as_array().unwrap();
+        assert_eq!(msgs[0]["role"], "system");
+        assert_eq!(msgs[0]["content"], "sys");
+    }
+
+    #[test]
+    fn non_stream_usage_mapped() {
+        let resp = ProviderResponse {
+            body: serde_json::to_vec(&json!({
+                "id": "m1",
+                "content": [{"type": "text", "text": "hello"}],
+                "usage": {"input_tokens": 10, "output_tokens": 5}
+            }))
+            .unwrap()
+            .into(),
+            status: 200,
+            is_stream: false,
+        };
+        let p = AnthropicProvider;
+        let out = p.transform_response(&resp).unwrap();
+        assert_eq!(out["usage"]["prompt_tokens"], 10);
+        assert_eq!(out["usage"]["completion_tokens"], 5);
+        assert_eq!(out["usage"]["total_tokens"], 15);
+    }
+
+    #[test]
+    fn stream_chunk_returns_single_value_no_data_prefix() {
+        let resp = ProviderResponse {
+            body: serde_json::to_vec(&json!({
+                "type": "content_block_delta",
+                "delta": {"text": "xyz"}
+            }))
+            .unwrap()
+            .into(),
+            status: 200,
+            is_stream: true,
+        };
+        let p = AnthropicProvider;
+        let out = p.transform_response(&resp).unwrap();
+        assert!(out.is_object());
+        assert_eq!(out["choices"][0]["delta"]["content"], "xyz");
+        // 不包含 data: 前缀，避免二次包装
+        assert!(!out.to_string().starts_with("data:"));
     }
 }

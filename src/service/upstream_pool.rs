@@ -23,54 +23,71 @@ const DEFAULT_TCP_KEEPALIVE_SECS: u64 = 60;
 /// Upstream connection pool with SSRF protection
 pub struct UpstreamPool {
     cache: UpstreamCache,
-    allowlist: Arc<Vec<String>>,
+    ssrf_enabled: bool,
+    ssrf_allow_list: Arc<Vec<String>>,
     default_request_timeout: Duration,
     max_body_bytes: usize,
 }
 
 impl UpstreamPool {
     /// Create a new upstream pool
-    pub fn new(allowlist: Vec<String>, request_timeout_ms: u64, max_body_bytes: usize) -> Self {
+    pub fn new(
+        ssrf_enabled: bool,
+        ssrf_allow_list: Vec<String>,
+        request_timeout_ms: u64,
+        max_body_bytes: usize,
+    ) -> Self {
         Self {
             cache: UpstreamCache::builder().max_capacity(1024).build(),
-            allowlist: Arc::new(allowlist),
+            ssrf_enabled,
+            ssrf_allow_list: Arc::new(ssrf_allow_list),
             default_request_timeout: Duration::from_millis(request_timeout_ms),
             max_body_bytes,
         }
     }
 
-    /// Check if base_url is in the allowlist
-    pub fn check_allowlist(&self, base_url: &str) -> Result<(), CoreError> {
-        let host = base_url
-            .split("://")
-            .nth(1)
-            .and_then(|s| s.split('/').next())
-            .and_then(|s| s.split(':').next())
-            .ok_or_else(|| CoreError::BadRequest(format!("invalid base_url: {base_url}")))?;
-        if self.allowlist.iter().any(|h| h.eq_ignore_ascii_case(host)) {
-            Ok(())
-        } else {
-            Err(CoreError::BadRequest(format!(
-                "upstream host '{host}' not in allowlist"
-            )))
-        }
-    }
-
-    /// Full SSRF check: DNS resolution + IP range check
+    /// Full SSRF check: allow-list exemption + DNS resolution + IP range check
+    ///
+    /// - `ssrf_enabled == false`：纯放行（供测试 / 本地安全环境）。
+    /// - `allow_list` 中精确匹配 base_url 的 host：放行。
+    /// - 其余：DNS 解析目标 host，拦截回环 / 私有 / 链路本地 IP。
     pub fn check_ssrf(&self, base_url: &str) -> Result<(), CoreError> {
-        self.check_allowlist(base_url)?;
+        if !self.ssrf_enabled {
+            return Ok(());
+        }
 
-        let host = base_url
+        // authority 形如 "host:port" / "host" / "[v6]:port"
+        let authority = base_url
             .split("://")
             .nth(1)
             .and_then(|s| s.split('/').next())
             .ok_or_else(|| CoreError::BadRequest(format!("invalid base_url: {base_url}")))?;
+
+        // 提取纯 host（去端口；IPv6 去方括号），用于 allow_list 精确匹配
+        let host = if authority.starts_with('[') {
+            authority
+                .split(']')
+                .next()
+                .map(|s| s.trim_start_matches('['))
+                .unwrap_or(authority)
+        } else {
+            authority.split(':').next().unwrap_or(authority)
+        };
+
+        // 显式豁免：host 精确匹配 allow_list
+        if self
+            .ssrf_allow_list
+            .iter()
+            .any(|h| h.eq_ignore_ascii_case(host))
+        {
+            return Ok(());
+        }
 
         // DNS resolution
-        let addr_str = if host.contains(':') {
-            host.to_string()
+        let addr_str = if authority.contains(':') {
+            authority.to_string()
         } else {
-            format!("{host}:443")
+            format!("{authority}:443")
         };
 
         let addrs: Vec<_> = match addr_str.to_socket_addrs() {
@@ -238,5 +255,29 @@ mod tests {
     #[test]
     fn blocks_loopback_v6() {
         assert!(is_blocked_ip("::1".parse().unwrap()));
+    }
+
+    #[test]
+    fn ssrf_disabled_passes_loopback() {
+        let pool = UpstreamPool::new(false, vec![], 1000, 1024);
+        assert!(pool.check_ssrf("http://127.0.0.1:9000/v1").is_ok());
+        assert!(pool.check_ssrf("http://10.0.0.1/v1").is_ok());
+    }
+
+    #[test]
+    fn ssrf_enabled_blocks_loopback() {
+        let pool = UpstreamPool::new(true, vec![], 1000, 1024);
+        assert!(pool.check_ssrf("http://127.0.0.1:9000/v1").is_err());
+        assert!(pool.check_ssrf("http://10.0.0.1/v1").is_err());
+        assert!(pool.check_ssrf("http://192.168.1.1/v1").is_err());
+    }
+
+    #[test]
+    fn ssrf_allow_list_exempts_host() {
+        let pool = UpstreamPool::new(true, vec!["127.0.0.1".into()], 1000, 1024);
+        assert!(pool.check_ssrf("http://127.0.0.1:9000/v1").is_ok());
+        // 其它回环地址未豁免，仍被拦截
+        let pool2 = UpstreamPool::new(true, vec!["127.0.0.1".into()], 1000, 1024);
+        assert!(pool2.check_ssrf("http://10.0.0.1/v1").is_err());
     }
 }

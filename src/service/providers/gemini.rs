@@ -79,22 +79,14 @@ impl Provider for GeminiProvider {
         // OpenAI 流式：data: { "choices": [{"delta": {"content": "..."}}] }
 
         if resp.is_stream {
-            // 流式响应需要解析 SSE data
-            let body_str = String::from_utf8_lossy(&resp.body);
-            let mut openai_chunks = Vec::new();
-
-            for line in body_str.lines() {
-                if let Some(data) = line.strip_prefix("data: ") {
-                    if let Ok(gemini_chunk) = serde_json::from_str::<Value>(data) {
-                        // 转换 Gemini chunk 到 OpenAI chunk
-                        if let Some(openai_chunk) = self.transform_streaming_chunk(&gemini_chunk) {
-                            openai_chunks.push(openai_chunk);
-                        }
-                    }
-                }
-            }
-
-            Ok(json!(openai_chunks))
+            // 流式：handler 已剥离 `data:` 前缀，这里收到的是单个纯 JSON chunk，
+            // 转换后返回单个 OpenAI Value（不包含 data: 前缀，避免二次包装）。
+            let chunk: Value = serde_json::from_slice(&resp.body).map_err(|e| {
+                CoreError::Internal(format!("failed to parse Gemini SSE chunk: {e}"))
+            })?;
+            Ok(self
+                .transform_streaming_chunk(&chunk)
+                .unwrap_or(Value::Null))
         } else {
             // 非流式响应
             let gemini_resp: Value = serde_json::from_slice(&resp.body).map_err(|e| {
@@ -130,7 +122,7 @@ impl Provider for GeminiProvider {
                     },
                     "finish_reason": "stop"
                 }],
-                "usage": gemini_resp.get("usageMetadata").cloned().unwrap_or(json!({}))
+                "usage": map_gemini_usage(gemini_resp.get("usageMetadata"))
             });
 
             Ok(openai_resp)
@@ -177,5 +169,82 @@ impl GeminiProvider {
                 "finish_reason": null
             }]
         }))
+    }
+}
+
+/// 将 Gemini usageMetadata 映射为 OpenAI 兼容的 usage 结构。
+///
+/// Gemini 返回 `{promptTokenCount, candidatesTokenCount, totalTokenCount}`，
+/// OpenAI 期望 `{prompt_tokens, completion_tokens, total_tokens}`。字段缺失时回退到 0。
+fn map_gemini_usage(raw: Option<&Value>) -> Value {
+    let prompt = raw
+        .and_then(|u| u.get("promptTokenCount"))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    let completion = raw
+        .and_then(|u| u.get("candidatesTokenCount"))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    let total = raw
+        .and_then(|u| u.get("totalTokenCount"))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(prompt + completion);
+    json!({
+        "prompt_tokens": prompt,
+        "completion_tokens": completion,
+        "total_tokens": total,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::service::providers::ProviderResponse;
+
+    #[test]
+    fn non_stream_usage_mapped() {
+        let resp = ProviderResponse {
+            body: serde_json::to_vec(&json!({
+                "candidates": [{"content": {"parts": [{"text": "hi"}]}}],
+                "usageMetadata": {
+                    "promptTokenCount": 7,
+                    "candidatesTokenCount": 3,
+                    "totalTokenCount": 10
+                }
+            }))
+            .unwrap()
+            .into(),
+            status: 200,
+            is_stream: false,
+        };
+        let p = GeminiProvider;
+        let out = p.transform_response(&resp).unwrap();
+        assert_eq!(out["usage"]["prompt_tokens"], 7);
+        assert_eq!(out["usage"]["completion_tokens"], 3);
+        assert_eq!(out["usage"]["total_tokens"], 10);
+    }
+
+    #[test]
+    fn stream_chunk_returns_single_value_no_data_prefix() {
+        let resp = ProviderResponse {
+            body: serde_json::to_vec(&json!({
+                "candidates": [{"content": {"parts": [{"text": "xyz"}]}}]
+            }))
+            .unwrap()
+            .into(),
+            status: 200,
+            is_stream: true,
+        };
+        let p = GeminiProvider;
+        let out = p.transform_response(&resp).unwrap();
+        assert_eq!(out["choices"][0]["delta"]["content"], "xyz");
+        assert!(!out.to_string().starts_with("data:"));
+        // 不需要的事件应返回 Null（handler 会跳过）
+        let skip = ProviderResponse {
+            body: serde_json::to_vec(&json!({})).unwrap().into(),
+            status: 200,
+            is_stream: true,
+        };
+        assert!(p.transform_response(&skip).unwrap().is_null());
     }
 }
