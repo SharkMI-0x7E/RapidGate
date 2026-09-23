@@ -1,13 +1,20 @@
 [package]
 name = "rapidgate"
-# 注：cargo semver 不接受 minor 段前导零，spec AGENTS.md §6 写 "2026.06.1" 会在
-# `cargo check` 时报 "invalid leading zero"。这里用 2026.6.1 与 2026.6.x 系列等价。
-# 待阶段二与用户对齐后决定是否回填 AGENTS.md。
-version = "2026.6.1"
+# 注：cargo semver 不接受 minor 段前导零，spec AGENTS.md §6 写 "2026.09.1" 会在
+# `cargo check` 时报 "invalid leading zero"。这里用 2026.9.1 与 2026.9.x 系列等价。
+version = "2026.9.1"
 edition = "2021"
+default-run = "rapidgate"
 license = "Apache-2.0"
 description = "High-performance unified LLM API gateway written in Rust"
 repository = "https://github.com/SharkMI-0x7E/RapidGate"
+# AI 工作产物（claude.md / 分阶段作业提示词 / 阶段三任务书）不进入发布包：
+# 只影响 cargo package 内容，不影响工作区文件，也不重写 git 历史。
+exclude = [
+    "claude.md",
+    "docs/rapidgate-prompt.md",
+    "docs/rapidgate-stage3.md",
+]
 
 [lib]
 name = "rapidgate"
@@ -16,6 +23,10 @@ path = "src/lib.rs"
 [[bin]]
 name = "rapidgate"
 path = "src/main.rs"
+
+[features]
+# ETCD 配置中心后端（需要 protoc + etcd-client）。默认关闭。
+config-center-etcd = ["dep:etcd-client"]
 
 [dependencies]
 # 异步运行时（spec §3.1 锁定）
@@ -76,10 +87,12 @@ tracing-opentelemetry = "0.28"  # OpenTelemetry tracing
 opentelemetry = { version = "0.27", features = ["trace", "metrics"] }  # OpenTelemetry SDK
 opentelemetry-otlp = { version = "0.27", features = ["grpc-tonic"] }  # OTLP 导出
 opentelemetry_sdk = { version = "0.27", features = ["trace", "metrics", "rt-tokio"] }  # OpenTelemetry SDK
-# etcd-client = "0.12"         # ETCD 配置中心 - 暂时移除，需要 protoc
+# ETCD 配置中心 - feature-gated（config-center-etcd）。需要 protoc + etcd-client 编译
+etcd-client = { version = "0.12", optional = true }
+libloading = "0.8"           # Native 插件动态库加载（dlsym）
 wasmtime = "19.0"            # WASM 插件沙箱
-async-graphql = "7.0"        # GraphQL（admin API）
-async-graphql-axum = "7.0"   # GraphQL axum 集成
+async-graphql = "7.0"        # GraphQL（admin API）# 计划中：GraphQL admin（spec §3.3 保留）
+async-graphql-axum = "7.0"   # GraphQL axum 集成 # 计划中：GraphQL admin（spec §3.3 保留）
 oauth2 = "4.4"               # OAuth2 认证
 clap = { version = "4.5", features = ["derive"] }  # CLI 参数解析
 
