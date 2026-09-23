@@ -44,17 +44,53 @@ async fn main() -> ExitCode {
     };
     let router = Router::new(table);
 
-    // 6) 构造 AppState
-    let state = Arc::new(AppState::new(
+    // 6) 构造 AppState（同时拿到审计事件接收端）
+    let (state, mut audit_rx) = AppState::new(
         router,
         cfg.gateway.upstreams.clone(),
         cfg.gateway.defaults.rate_limit.clone(),
         paths.config_dir,
         cfg.gateway.max_body_bytes,
         cfg.gateway.request_timeout_ms,
-    ));
+        cfg.gateway.ssrf.clone(),
+    );
+    let state = Arc::new(state);
 
-    // 7) 启动 HTTP 服务 + graceful shutdown
+    // 6.1) 审计事件消费者：异步消费并记录结构化日志
+    tokio::spawn(async move {
+        while let Some(ev) = audit_rx.recv().await {
+            tracing::info!(
+                route = %ev.route_id,
+                api_key_hash = %ev.api_key_hash,
+                status = ev.status,
+                latency_ms = ev.latency_ms,
+                prompt_tokens = ev.prompt_tokens,
+                completion_tokens = ev.completion_tokens,
+                "audit event"
+            );
+        }
+    });
+
+    // 7) 启动 Admin（/admin/*、/metrics）独立端口
+    {
+        let admin_listen = cfg.gateway.admin_listen.clone();
+        let admin_router = service::admin::routes::admin_routes(state.clone());
+        tokio::spawn(async move {
+            match tokio::net::TcpListener::bind(&admin_listen).await {
+                Ok(listener) => {
+                    tracing::info!(admin_listen = %admin_listen, "admin server starting");
+                    if let Err(e) = axum::serve(listener, admin_router).await {
+                        tracing::error!(error = %e, "admin server error");
+                    }
+                }
+                Err(e) => {
+                    tracing::error!(error = %e, admin_listen = %admin_listen, "admin bind failed");
+                }
+            }
+        });
+    }
+
+    // 8) 启动主 HTTP 服务 + graceful shutdown
     let listen = cfg.gateway.listen.clone();
     tracing::info!(listen = %listen, "rapidgate starting");
 

@@ -4,9 +4,14 @@ use std::sync::OnceLock;
 
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
+use crate::core::observability::{OtelConfig, OtelInitializer};
+
 static INIT: OnceLock<()> = OnceLock::new();
 
-/// 初始化全局 tracing subscriber；幂等
+/// 初始化全局 tracing subscriber；幂等。
+///
+/// OpenTelemetry 默认 noop/关闭：仅当环境变量 `RGD_OTEL_ENABLED=1` 时才初始化 OTLP
+/// （避免无 collector 时阻塞启动）。初始化失败只降级为日志告警，不影响网关运行。
 pub fn init() {
     INIT.get_or_init(|| {
         let env_filter = EnvFilter::try_from_default_env()
@@ -21,6 +26,19 @@ pub fn init() {
             .with(env_filter)
             .with(fmt_layer)
             .init();
+
+        // RGD_OTEL_ENABLED=1 时启用 OTLP tracing 导出（best-effort）
+        if std::env::var("RGD_OTEL_ENABLED").as_deref() == Ok("1") {
+            let cfg = OtelConfig::default();
+            match OtelInitializer::init_tracing(&cfg) {
+                Ok(_) => tracing::info!(
+                    endpoint = %cfg.endpoint,
+                    service = %cfg.service_name,
+                    "opentelemetry tracing enabled"
+                ),
+                Err(e) => tracing::warn!(error = %e, "opentelemetry init failed (otel disabled)"),
+            }
+        }
     });
 }
 

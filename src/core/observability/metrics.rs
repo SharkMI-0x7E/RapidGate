@@ -127,12 +127,10 @@ impl Metrics {
 
     /// 导出 Prometheus 格式文本
     pub fn export(&self) -> String {
-        use prometheus::Encoder;
-        let encoder = prometheus::TextEncoder::new();
-        let metric_families = self.registry.gather();
-        let mut buffer = Vec::new();
-        encoder.encode(&metric_families, &mut buffer).unwrap();
-        String::from_utf8(buffer).unwrap()
+        prometheus::TextEncoder::new()
+            .encode_to_string(&self.registry.gather())
+            // encode 只会在编码器内存分配失败时异常，这里用空串兜底
+            .unwrap_or_default()
     }
 
     /// 获取 Registry 引用（用于自定义指标注册）
