@@ -23,6 +23,7 @@ fn make_request(body: Value, stream: bool) -> ProviderRequest {
         api_key: "sk-test-key-1234567890abcdef".to_string(),
         model: "test-model".to_string(),
         stream,
+        operation: "chat".to_string(),
     }
 }
 
@@ -80,7 +81,7 @@ fn anthropic_transform_request_adds_max_tokens() {
 }
 
 #[test]
-fn anthropic_transform_request_converts_system_role() {
+fn anthropic_transform_request_preserves_system_role() {
     let provider = AnthropicProvider;
     let req = make_request(
         json!({
@@ -95,7 +96,7 @@ fn anthropic_transform_request_converts_system_role() {
 
     let result = provider.transform_request(&req).unwrap();
     let messages = result["messages"].as_array().unwrap();
-    assert_eq!(messages[0]["role"], "user"); // system -> user
+    assert_eq!(messages[0]["role"], "system"); // 保留 system role（spec 要求）
 }
 
 #[test]

@@ -19,6 +19,7 @@ fn make_request(body: Value, stream: bool) -> ProviderRequest {
         api_key: "sk-test-key-1234567890abcdef".to_string(),
         model: "gpt-4".to_string(),
         stream,
+        operation: "chat".to_string(),
     }
 }
 
@@ -207,6 +208,22 @@ fn openai_build_url_with_custom_base() {
 
     let url = provider.build_url(&req).unwrap();
     assert_eq!(url, "https://custom.api.com/v1/v1/chat/completions");
+}
+
+#[test]
+fn openai_build_url_uses_embedding_path() {
+    let provider = OpenAIProvider;
+    let mut req = make_request(json!({"input": "hello"}), false);
+    req.operation = "embeddings".to_string();
+
+    let url = provider.build_url(&req).unwrap();
+    assert_eq!(url, "https://api.openai.com/v1/embeddings");
+}
+
+#[test]
+fn openai_embedding_path() {
+    let provider = OpenAIProvider;
+    assert_eq!(provider.embedding_path(), "/v1/embeddings");
 }
 
 // -------------------- 完整请求流程 --------------------

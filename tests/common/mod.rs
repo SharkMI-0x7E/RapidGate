@@ -33,6 +33,8 @@ pub async fn spawn_app(state: AppState) -> TestApp {
 }
 
 /// 构造空配置 AppState（用于无上游路由测试）
+// 各测试文件独立编译，此 helper 只被部分测试引用；允许 unused 以免 ssrf.rs 单独编译时报 lint
+#[allow(dead_code)]
 pub fn empty_state() -> AppState {
     AppState::new(
         Router::new(RouteTable::empty()),
@@ -45,7 +47,9 @@ pub fn empty_state() -> AppState {
         std::path::PathBuf::from("./config"),
         1024,
         1000,
+        rapidgate::core::config::gateway::SsrfConfig::default(),
     )
+    .0
 }
 
 /// 构造最小可用的 LoadedConfig（仅 healthz 路径可达）
@@ -53,12 +57,13 @@ pub fn empty_state() -> AppState {
 #[allow(dead_code)]
 pub fn minimal_loaded() -> Arc<LoadedConfig> {
     use rapidgate::core::config::gateway::{
-        BreakerDefaults, Defaults, GatewayConfig, LoggingConfig, UpstreamAllowlist,
+        BreakerDefaults, Defaults, GatewayConfig, LoggingConfig, SsrfConfig, UpstreamAllowlist,
     };
     use rapidgate::core::config::route::RateLimitConfig;
     Arc::new(LoadedConfig {
         gateway: GatewayConfig {
             listen: "127.0.0.1:0".into(),
+            admin_listen: "127.0.0.1:9090".into(),
             request_timeout_ms: 1000,
             max_body_bytes: 1024,
             shutdown_timeout_ms: 1000,
@@ -81,6 +86,7 @@ pub fn minimal_loaded() -> Arc<LoadedConfig> {
                 },
             },
             upstreams: vec![],
+            ssrf: SsrfConfig::default(),
         },
         routes: vec![],
     })
