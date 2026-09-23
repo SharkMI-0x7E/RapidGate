@@ -25,6 +25,9 @@ pub async fn ratelimit_middleware(req: Request, next: axum::middleware::Next) ->
 /// limiter 以 `route 名 + algorithm` 为 key 缓存在 `state.limiters`（Moka），
 /// 无则按配置 `algorithm`（token_bucket / sliding_window）创建并缓存。
 /// 超限返回 429 `{"error":{"code":"rate_limited",...}}`。
+// 返回的 Err 是 HTTP Response 本身（必须直接返回给客户端），体积超 lint 阈值：
+// 与 auth::check_route_auth 同理，用 Box 会迫使调用点多一层解包而无实际收益，故允许该 lint。
+#[allow(clippy::result_large_err)]
 pub async fn check_route_rate_limit(
     state: &Arc<AppState>,
     route: &RouteConfig,
