@@ -22,6 +22,12 @@ defaults:
     failure_threshold: 5
     open_duration_ms: 30000
 
+# SSRF 运行时防护：默认严格拦截回环/私有/链路本地 IP。
+# 下面的 ssrf.allow_list 如需豁免某个 host，可在此显式列出。
+# 注意：upstream_allowlist.hosts 中的 "127.0.0.1" 仅用于配置文件校验，
+# 运行时 SSRF 由下方 ssrf 段管控（默认严格拦截回环地址）。
+ssrf: {}
+
 # Example upstream configuration (uncomment and fill in to use):
 # upstreams:
 #   - id: "openai-main"

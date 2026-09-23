@@ -22,6 +22,9 @@ pub struct UpstreamConfig {
     /// Per-upstream pool configuration (optional, falls back to global)
     #[serde(default)]
     pub pool: Option<UpstreamPoolConfig>,
+    /// 上游重试次数（v2.yaml 保留解析，阶段内不实现重试逻辑）
+    #[serde(default)]
+    pub max_retries: Option<u32>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

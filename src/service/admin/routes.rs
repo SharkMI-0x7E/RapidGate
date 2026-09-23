@@ -47,7 +47,7 @@ async fn get_routes(State(state): State<Arc<AppState>>) -> Response {
                 "name": r.name,
                 "method": r.match_rule.method,
                 "path": r.match_rule.path,
-                "upstream": r.upstream.id,
+                "upstream": r.upstream.as_ref().map(|u| u.id.as_str()),
             })
         })
         .collect();

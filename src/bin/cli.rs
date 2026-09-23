@@ -123,9 +123,14 @@ async fn run_routes(config_path: PathBuf) -> ExitCode {
     println!("{}", "-".repeat(70));
 
     for route in &cfg.routes {
+        let upstream = route
+            .upstream
+            .as_ref()
+            .map(|u| u.id.as_str())
+            .unwrap_or("-");
         println!(
             "{:<20} {:<10} {:<30} {}",
-            route.name, route.match_rule.method, route.match_rule.path, route.upstream.id
+            route.name, route.match_rule.method, route.match_rule.path, upstream
         );
     }
 
