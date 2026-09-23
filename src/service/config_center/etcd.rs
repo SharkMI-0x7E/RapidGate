@@ -1,8 +1,8 @@
 //! ETCD configuration center backend
 //!
-//! Note: The `etcd-client` dependency is currently disabled because it requires
-//! the `protoc` compiler. To enable: uncomment `etcd-client` in `Cargo.toml`,
-//! install protoc, and recompile.
+//! 默认构建（不带 `config-center-etcd` feature）时为 stub 实现，所有操作返回明确错误。
+//! 启用该 feature（`--features config-center-etcd`）会引入 `etcd-client` 依赖（需要 protoc）；
+//! 真实实现应在此处以 `#[cfg(feature = "config-center-etcd")]` 包裹 etcd-client 调用。
 
 use std::pin::Pin;
 
@@ -60,7 +60,8 @@ impl ConfigCenter for EtcdConfigCenter {
         let full_key = format!("{}/{}", self.config.prefix, key);
         tracing::warn!(key = %full_key, "ETCD fetch attempted but etcd-client is not compiled in");
         Err(CoreError::Config(
-            "ETCD support requires etcd-client feature (needs protoc installed)".to_string(),
+            "ETCD config center requires the 'config-center-etcd' feature and protoc at build time"
+                .to_string(),
         ))
     }
 
@@ -70,7 +71,8 @@ impl ConfigCenter for EtcdConfigCenter {
     ) -> Result<Pin<Box<dyn Stream<Item = String> + Send>>, CoreError> {
         tracing::warn!(key = %key, "ETCD watch attempted but etcd-client is not compiled in");
         Err(CoreError::Config(
-            "ETCD support requires etcd-client feature (needs protoc installed)".to_string(),
+            "ETCD config center requires the 'config-center-etcd' feature and protoc at build time"
+                .to_string(),
         ))
     }
 }
