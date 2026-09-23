@@ -9,7 +9,6 @@ on:
       - main
     paths:
       - Cargo.toml
-  push:
     tags:
       - "v*"
 
@@ -45,8 +44,9 @@ jobs:
             exit 1
           fi
           # 版本号格式校验：YYYY.MM.N（年份 4 位、月份 1-12、序号正整数）
-          if ! echo "$VERSION" | grep -Eq '^[0-9]{4}\.(0[1-9]|1[0-2])\.[0-9]+$'; then
-            echo "::error::Invalid version format: '$VERSION'. Expected YYYY.MM.N (e.g. 2026.06.1)"
+          # cargo semver 拒绝 minor 段前导零，实际版本为 2026.9.1 形式（也接受 2026.09.1）
+          if ! echo "$VERSION" | grep -Eq '^[0-9]{4}\.(0?[1-9]|1[0-2])\.[0-9]+$'; then
+            echo "::error::Invalid version format: '$VERSION'. Expected YYYY.MM.N (e.g. 2026.9.1)"
             exit 1
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
@@ -113,7 +113,7 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with: { persist-credentials: false }
-      - uses: dtolnay/rust-toolchain@a54c7afa936fefeb4456b2dd8068152619aa8d5b # stable
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # v1
         with:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@23bce251a8cd2ffc3c1075eaa2367cf899916d84 # v2.7.7
