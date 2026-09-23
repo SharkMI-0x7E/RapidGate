@@ -278,10 +278,10 @@ git push origin v2026.06.2
 
 ### 7.1 依赖锁定唯一源
 
-`Cargo.toml` 的 `[dependencies]` 表是**依赖锁定的唯一权威**，由 [docs/rapidgate-spec.md §3](file:///e:/pythonxiangmuwenjianjia/RapidGate/docs/rapidgate-spec.md) 维护。任何 AI / 开发者：
+`Cargo.toml` 的 `[dependencies]` 表是**依赖锁定的唯一权威**。允许并已批准的依赖列表（含"计划中 / 待接入"项）以 [docs/rapidgate-spec.md §3](file:///e:/pythonxiangmuwenjianjia/RapidGate/docs/rapidgate-spec.md) 的**允许列表**为准；AGENTS 不再维护独立的禁止列表。任何 AI / 开发者：
 
-- 添加依赖前**必须**先更新 spec §3 表格，并经用户确认
-- **禁止**引入 spec §3 "禁止添加"列表中的 crate（prometheus / opentelemetry / redis / argon2 等）
+- 添加 spec §3 允许列表之外的新依赖前**必须**先更新 spec §3 表格，并经用户确认
+- spec §3.3 允许列表中的 crate（prometheus / opentelemetry / redis / wasmtime / async-graphql 等）**允许保留**
 - 升级版本号**必须**列在 commit 标题中体现，例如 `chore(deps): bump axum to 0.8.1`
 
 ## 8. AI 协作工作流
@@ -499,3 +499,14 @@ git push origin v2026.06.2
 - 改了 CI / Release / 配置文件 → 是否影响 CI 行为？
 
 **变更必须可追溯**：每个 commit 标题 + 关联文档修改 commit，**必须**能由 `git log` + `git blame` 重建完整决策链。
+
+<!-- CODEGRAPH_START -->
+## CodeGraph
+
+In repositories indexed by CodeGraph (a `.codegraph/` directory exists at the repo root), reach for it BEFORE grep/find or reading files when you need to understand or locate code:
+
+- **MCP tools** (when available): `codegraph_explore` answers most code questions in one call — the relevant symbols' verbatim source plus the call paths between them. `codegraph_node` returns one symbol's source + callers, or reads a whole file with line numbers. If the tools are listed but deferred, load them by name via tool search.
+- **Shell** (always works): `codegraph explore "<symbol names or question>"` and `codegraph node <symbol-or-file>` print the same output.
+
+If there is no `.codegraph/` directory, skip CodeGraph entirely — indexing is the user's decision.
+<!-- CODEGRAPH_END -->
