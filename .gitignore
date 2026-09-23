@@ -39,3 +39,19 @@ target
 #.idea/
 
 提示词.md
+
+# AI 工作产物（不入库）
+claude.md
+docs/rapidgate-prompt.md
+docs/rapidgate-stage3.md
+
+# 尚未提交但绝不能提交的工具/配置目录与文件
+.claude/
+.cursor/
+.gemini/
+.kiro/
+.codegraph/
+GEMINI.md
+opencode.jsonc
+.mcp.json
+docs/provider-integration-plan.md
