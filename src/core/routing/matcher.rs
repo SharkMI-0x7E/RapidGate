@@ -174,6 +174,7 @@ mod tests {
             host: None,
             headers: vec![],
             query: vec![],
+            cookies: vec![],
         }
     }
 

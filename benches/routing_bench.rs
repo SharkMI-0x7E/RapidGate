@@ -16,12 +16,14 @@ fn make_test_table() -> RouteTable {
                 host: None,
                 headers: vec![],
                 query: vec![],
+                cookies: vec![],
             },
-            upstream: UpstreamRef {
+            upstream: Some(UpstreamRef {
                 id: "openai".to_string(),
-            },
+            }),
             auth: AuthConfig::default(),
             rate_limit: None,
+            canary: None,
         },
         RouteConfig {
             name: "prefix-models".to_string(),
@@ -31,12 +33,14 @@ fn make_test_table() -> RouteTable {
                 host: None,
                 headers: vec![],
                 query: vec![],
+                cookies: vec![],
             },
-            upstream: UpstreamRef {
+            upstream: Some(UpstreamRef {
                 id: "openai".to_string(),
-            },
+            }),
             auth: AuthConfig::default(),
             rate_limit: None,
+            canary: None,
         },
         RouteConfig {
             name: "regex-users".to_string(),
@@ -46,12 +50,14 @@ fn make_test_table() -> RouteTable {
                 host: None,
                 headers: vec![],
                 query: vec![],
+                cookies: vec![],
             },
-            upstream: UpstreamRef {
+            upstream: Some(UpstreamRef {
                 id: "openai".to_string(),
-            },
+            }),
             auth: AuthConfig::default(),
             rate_limit: None,
+            canary: None,
         },
     ];
     RouteTable::new(routes).unwrap()

@@ -83,12 +83,14 @@ mod tests {
                 host: None,
                 headers: vec![],
                 query: vec![],
+                cookies: vec![],
             },
-            upstream: UpstreamRef {
+            upstream: Some(UpstreamRef {
                 id: "test-upstream".to_string(),
-            },
+            }),
             auth: AuthConfig::default(),
             rate_limit: None,
+            canary: None,
         };
 
         let upstreams = vec![
@@ -101,6 +103,7 @@ mod tests {
                 models: vec![],
                 timeout_ms: None,
                 pool: None,
+                max_retries: None,
             },
             UpstreamConfig {
                 id: "canary".to_string(),
@@ -111,6 +114,7 @@ mod tests {
                 models: vec![],
                 timeout_ms: None,
                 pool: None,
+                max_retries: None,
             },
         ];
 

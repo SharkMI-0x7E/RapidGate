@@ -22,12 +22,14 @@ fn make_route() -> RouteConfig {
             host: None,
             headers: vec![],
             query: vec![],
+            cookies: vec![],
         },
-        upstream: UpstreamRef {
+        upstream: Some(UpstreamRef {
             id: "test-upstream".to_string(),
-        },
+        }),
         auth: AuthConfig::default(),
         rate_limit: None,
+        canary: None,
     }
 }
 
@@ -42,6 +44,7 @@ fn make_upstreams(count: usize) -> Vec<UpstreamConfig> {
             models: vec![],
             timeout_ms: None,
             pool: None,
+            max_retries: None,
         })
         .collect()
 }

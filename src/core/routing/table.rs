@@ -105,12 +105,14 @@ mod tests {
                 host: None,
                 headers: vec![],
                 query: vec![],
+                cookies: vec![],
             },
-            upstream: UpstreamRef {
+            upstream: Some(UpstreamRef {
                 id: "mock".to_string(),
-            },
+            }),
             auth: AuthConfig::default(),
             rate_limit: None,
+            canary: None,
         }
     }
 
