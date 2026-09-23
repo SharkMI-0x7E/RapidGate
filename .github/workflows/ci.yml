@@ -32,7 +32,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@a54c7afa936fefeb4456b2dd8068152619aa8d5b # stable
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # v1
         with:
           components: rustfmt
       - uses: Swatinem/rust-cache@23bce251a8cd2ffc3c1075eaa2367cf899916d84 # v2.7.7
@@ -51,8 +51,10 @@ jobs:
             echo "::error::Cannot extract version from Cargo.toml"
             exit 1
           fi
-          if ! echo "$VERSION" | grep -Eq '^[0-9]{4}\.(0[1-9]|1[0-2])\.[0-9]+$'; then
-            echo "::error::Invalid version format: '$VERSION'. Expected YYYY.MM.N (e.g. 2026.06.1)"
+          # 月份 1-12：接受带前导零（2026.09.1）与不带（2026.9.1）。
+          # cargo semver 拒绝 minor 段前导零，故实际发布版本为 2026.9.1 形式。
+          if ! echo "$VERSION" | grep -Eq '^[0-9]{4}\.(0?[1-9]|1[0-2])\.[0-9]+$'; then
+            echo "::error::Invalid version format: '$VERSION'. Expected YYYY.MM.N (e.g. 2026.9.1)"
             exit 1
           fi
           echo "PASS: version '$VERSION' matches YYYY.MM.N format"
@@ -73,7 +75,7 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with: { persist-credentials: false }
-      - uses: dtolnay/rust-toolchain@a54c7afa936fefeb4456b2dd8068152619aa8d5b # stable
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # v1
         with:
           toolchain: ${{ matrix.rust }}
           components: clippy
@@ -90,11 +92,13 @@ jobs:
         with: { persist-credentials: false }
       - name: Check for unsafe code
         run: |
-          if grep -rn "unsafe" src/ --include="*.rs"; then
-            echo "::error::Found 'unsafe' keyword in src/ directory!"
+          # 白名单：src/core/plugins/native.rs 是 dlsym/libloading FFI 边界，
+          # 其 unsafe 已评审并文档化（加载期校验必选符号）。其余文件禁止 unsafe。
+          if grep -rn "unsafe" src/ --include="*.rs" | grep -v "^src/core/plugins/native.rs:"; then
+            echo "::error::Found 'unsafe' keyword outside the whitelisted FFI module!"
             exit 1
           fi
-          echo "PASS: No unsafe code found in src/"
+          echo "PASS: No unsafe code outside native plugin FFI module"
 
   release-build:
     name: Release Build
@@ -106,6 +110,6 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with: { persist-credentials: false }
-      - uses: dtolnay/rust-toolchain@a54c7afa936fefeb4456b2dd8068152619aa8d5b # stable
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # v1
       - uses: Swatinem/rust-cache@23bce251a8cd2ffc3c1075eaa2367cf899916d84 # v2.7.7
       - run: cargo build --release
